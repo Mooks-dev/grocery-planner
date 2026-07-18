@@ -286,6 +286,17 @@
     min-height:1.2em;
   }
   .backup-status.error{color:#d1554a;}
+  .sync-status{
+    text-align:center;
+    font-size:0.9rem;
+    color:var(--muted);
+    margin:0 0 14px;
+    padding:10px 12px;
+    background:var(--border);
+    border-radius:10px;
+  }
+  .sync-status.on{color:var(--ink);background:#e5f3ea;}
+  .sync-status.error{color:#d1554a;background:#fbe3e0;}
 
   .grocery-item{
     display:flex;
@@ -359,11 +370,20 @@
   <!-- BACKUP VIEW -->
   <div class="view" id="view-backup">
     <div class="section-title">
-      <span>Backup &amp; Restore</span>
+      <span>☁️ Cloud Sync</span>
     </div>
     <p class="backup-note">
-      Your recipes and week plan live in this browser only. If Safari's history or website data ever gets cleared, that data goes with it.
-      Save a backup file to your Files app or iCloud Drive every so often — you can restore from it any time, even on a different device.
+      Sign in to keep your recipes and week plan synced across every device — phone, laptop, anywhere. Changes save to the cloud automatically and still work offline.
+    </p>
+    <div id="syncStatus" class="sync-status">Not signed in — sign in to sync across your devices.</div>
+    <button class="btn block" id="signInBtn">Sign in with Google to sync</button>
+    <button class="btn secondary block" id="signOutBtn" style="display:none;">Sign out</button>
+
+    <div class="section-title" style="margin-top:28px;">
+      <span>💾 Backup File</span>
+    </div>
+    <p class="backup-note">
+      Prefer a manual copy? Save a backup file to your device or Google Drive — handy as an extra safety net or to move data without signing in.
     </p>
     <button class="btn block" id="exportBtn">⬇️ Save a backup file</button>
     <button class="btn secondary block" id="importBtn">⬆️ Restore from a backup file</button>
@@ -435,6 +455,7 @@
   }
   function save(){
     localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    if(window.__cloudOnSave) window.__cloudOnSave();
   }
   function uid(){
     return Date.now().toString(36) + Math.random().toString(36).slice(2,7);
@@ -723,6 +744,19 @@
     }[m]));
   }
 
+  // ---------- Cloud sync bridge (used by the Firebase module below) ----------
+  window.__getState = () => state;
+  window.__applyRemoteState = function(remote){
+    if(!remote || typeof remote !== "object") return;
+    state = {
+      recipes: Array.isArray(remote.recipes) ? remote.recipes : [],
+      week: (remote.week && typeof remote.week === "object") ? remote.week : {},
+      groceryChecked: (remote.groceryChecked && typeof remote.groceryChecked === "object") ? remote.groceryChecked : {}
+    };
+    localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    renderDays(); renderRecipes(); renderGrocery();
+  };
+
   // ---------- Init ----------
   renderDays();
   renderRecipes();
@@ -732,6 +766,99 @@
     navigator.serviceWorker.register("sw.js");
   }
 })();
+</script>
+
+<!-- Firebase cloud sync -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut }
+    from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+  import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, onSnapshot, setDoc }
+    from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDsHrhHPqfXFgnj8wRigCXgq6TDX8NqMSY",
+    authDomain: "dinner-planner-2b47f.firebaseapp.com",
+    projectId: "dinner-planner-2b47f",
+    storageBucket: "dinner-planner-2b47f.firebasestorage.app",
+    messagingSenderId: "500110596795",
+    appId: "1:500110596795:web:5e354ade9c7e2d2178279e"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  });
+  const provider = new GoogleAuthProvider();
+
+  const syncStatus = document.getElementById("syncStatus");
+  const signInBtn = document.getElementById("signInBtn");
+  const signOutBtn = document.getElementById("signOutBtn");
+
+  function setStatus(text, cls){
+    syncStatus.className = "sync-status" + (cls ? " " + cls : "");
+    syncStatus.innerHTML = text;
+  }
+
+  let userDocRef = null;
+  let unsub = null;
+  let pushTimer = null;
+
+  // Called by the main app's save() whenever local data changes.
+  window.__cloudOnSave = function(){
+    if(!userDocRef) return;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(async () => {
+      try {
+        await setDoc(userDocRef, { ...window.__getState(), updatedAt: Date.now() });
+      } catch(e){ console.error("cloud push failed", e); }
+    }, 800);
+  };
+
+  signInBtn.addEventListener("click", async () => {
+    setStatus("Opening Google sign-in…");
+    try {
+      await signInWithPopup(auth, provider);
+    } catch(e) {
+      if (["auth/popup-blocked","auth/cancelled-popup-request","auth/popup-closed-by-user","auth/operation-not-supported-in-this-environment"].includes(e.code)) {
+        try { await signInWithRedirect(auth, provider); }
+        catch(e2){ setStatus("Sign-in failed: " + e2.message, "error"); }
+      } else {
+        setStatus("Sign-in failed: " + e.message, "error");
+      }
+    }
+  });
+
+  signOutBtn.addEventListener("click", () => signOut(auth));
+
+  getRedirectResult(auth).catch(()=>{});
+
+  onAuthStateChanged(auth, (user) => {
+    if (unsub) { unsub(); unsub = null; }
+    if (user) {
+      userDocRef = doc(db, "users", user.uid);
+      signInBtn.style.display = "none";
+      signOutBtn.style.display = "";
+      setStatus("Synced as <b>" + (user.email || user.displayName || "you") + "</b> ✓", "on");
+      unsub = onSnapshot(userDocRef, { includeMetadataChanges: true },
+        (snap) => {
+          if (snap.exists()) {
+            window.__applyRemoteState(snap.data());
+          } else if (!snap.metadata.fromCache) {
+            // Server confirms there's no cloud data yet → seed it from this device.
+            setDoc(userDocRef, { ...window.__getState(), updatedAt: Date.now() }).catch(console.error);
+          }
+        },
+        (err) => setStatus("Sync error: " + err.message, "error")
+      );
+    } else {
+      userDocRef = null;
+      signInBtn.style.display = "";
+      signOutBtn.style.display = "none";
+      setStatus("Not signed in — sign in to sync across your devices.");
+    }
+  });
 </script>
 </body>
 </html>
