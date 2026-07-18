@@ -298,6 +298,55 @@
   .sync-status.on{color:var(--ink);background:#e5f3ea;}
   .sync-status.error{color:#d1554a;background:#fbe3e0;}
 
+  .share-block{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:16px;
+    margin:14px 0;
+    box-shadow:var(--shadow);
+  }
+  .share-label{
+    font-weight:700;
+    font-size:0.85rem;
+    color:var(--muted);
+    margin:12px 0 8px;
+    text-transform:uppercase;
+    letter-spacing:0.03em;
+  }
+  .share-block > .share-label:first-child{margin-top:0;}
+  .share-code{
+    text-align:center;
+    font-size:1.9rem;
+    font-weight:800;
+    letter-spacing:0.18em;
+    color:var(--accent-dark);
+    background:var(--bg);
+    border-radius:10px;
+    padding:12px;
+    margin-bottom:10px;
+    user-select:all;
+  }
+  .members-list{margin-bottom:10px;}
+  .member-chip{
+    display:inline-block;
+    background:var(--border);
+    border-radius:16px;
+    padding:5px 12px;
+    font-size:0.85rem;
+    margin:0 6px 6px 0;
+  }
+  .modal input[type=text], .modal textarea, #view-backup input[type=text]{
+    width:100%;
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:10px 12px;
+    font-size:1rem;
+    font-family:inherit;
+    background:#fffdfb;
+    margin-bottom:8px;
+  }
+
   .grocery-item{
     display:flex;
     align-items:center;
@@ -377,6 +426,35 @@
     </p>
     <div id="syncStatus" class="sync-status">Not signed in — sign in to sync across your devices.</div>
     <button class="btn block" id="signInBtn">Sign in with Google to sync</button>
+
+    <!-- Shown once signed in: share with partner / join a group -->
+    <div id="householdBox" style="display:none;">
+      <div class="share-block">
+        <div class="share-label">Your shared group code</div>
+        <div class="share-code" id="shareCode">------</div>
+        <button class="btn secondary block" id="copyCodeBtn">📋 Copy code</button>
+        <p class="backup-note" style="margin-top:12px;">
+          To share with your partner: add their Google email below, then give them this code so they can join and see the same lists.
+        </p>
+
+        <div class="share-label">People in this group</div>
+        <div id="membersList" class="members-list"></div>
+        <input type="text" id="memberEmailInput" placeholder="partner@gmail.com" autocapitalize="off" autocorrect="off">
+        <button class="btn block" id="addMemberBtn">➕ Add their email</button>
+        <div id="memberStatus" class="backup-status"></div>
+      </div>
+
+      <div class="share-block">
+        <div class="share-label">Joining your partner's group instead?</div>
+        <p class="backup-note">
+          If they already set things up and added your email, enter their code here to sync with them.
+        </p>
+        <input type="text" id="joinCodeInput" placeholder="Their 6-character code" autocapitalize="characters" autocorrect="off">
+        <button class="btn secondary block" id="joinBtn">Join their group</button>
+        <div id="joinStatus" class="backup-status"></div>
+      </div>
+    </div>
+
     <button class="btn secondary block" id="signOutBtn" style="display:none;">Sign out</button>
 
     <div class="section-title" style="margin-top:28px;">
@@ -773,7 +851,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
   import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut }
     from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
-  import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, onSnapshot, setDoc }
+  import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, onSnapshot, setDoc, arrayUnion }
     from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -792,29 +870,102 @@
   });
   const provider = new GoogleAuthProvider();
 
-  const syncStatus = document.getElementById("syncStatus");
-  const signInBtn = document.getElementById("signInBtn");
-  const signOutBtn = document.getElementById("signOutBtn");
+  const $ = (id) => document.getElementById(id);
+  const syncStatus = $("syncStatus");
+  const signInBtn = $("signInBtn");
+  const signOutBtn = $("signOutBtn");
+  const householdBox = $("householdBox");
+  const shareCode = $("shareCode");
+  const membersList = $("membersList");
 
   function setStatus(text, cls){
     syncStatus.className = "sync-status" + (cls ? " " + cls : "");
     syncStatus.innerHTML = text;
   }
+  function setSmall(id, text, isError){
+    const el = $(id);
+    el.textContent = text || "";
+    el.classList.toggle("error", !!isError);
+  }
+  function esc(s){ return String(s).replace(/[&<>]/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;" }[m])); }
 
-  let userDocRef = null;
+  function makeCode(){
+    const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no easily-confused chars
+    let s = "";
+    for(let i=0;i<6;i++) s += alphabet[Math.floor(Math.random()*alphabet.length)];
+    return s;
+  }
+
+  let currentUser = null;
+  let householdId = null;
+  let householdRef = null;
+  let householdCache = null;   // last known household doc (for preserving membership on writes)
   let unsub = null;
   let pushTimer = null;
 
-  // Called by the main app's save() whenever local data changes.
+  // Called by the main app's save() whenever local data changes → push to the shared group.
   window.__cloudOnSave = function(){
-    if(!userDocRef) return;
+    if(!householdRef || !currentUser) return;
     clearTimeout(pushTimer);
     pushTimer = setTimeout(async () => {
       try {
-        await setDoc(userDocRef, { ...window.__getState(), updatedAt: Date.now() });
+        const s = window.__getState();
+        await setDoc(householdRef, {
+          recipes: s.recipes, week: s.week, groceryChecked: s.groceryChecked,
+          memberEmails: (householdCache && householdCache.memberEmails) || [currentUser.email],
+          ownerUid: (householdCache && householdCache.ownerUid) || currentUser.uid,
+          updatedAt: Date.now()
+        });
       } catch(e){ console.error("cloud push failed", e); }
     }, 800);
   };
+
+  function renderMembers(emails){
+    membersList.innerHTML = (emails || []).map(e =>
+      `<span class="member-chip">${esc(e)}</span>`).join("");
+  }
+
+  function subscribeHousehold(){
+    if (unsub) { unsub(); unsub = null; }
+    unsub = onSnapshot(householdRef, { includeMetadataChanges: true },
+      (snap) => {
+        if (snap.exists()) {
+          householdCache = snap.data();
+          window.__applyRemoteState(householdCache);
+          renderMembers(householdCache.memberEmails);
+        }
+      },
+      (err) => setStatus("Sync error: " + err.message, "error")
+    );
+  }
+
+  async function startHousehold(){
+    // Find this user's group, or create/migrate one.
+    const userRef = doc(db, "users", currentUser.uid);
+    let udata = null;
+    try { const us = await getDoc(userRef); udata = us.exists() ? us.data() : null; } catch(e){}
+
+    if (udata && udata.householdId) {
+      householdId = udata.householdId;
+    } else {
+      // New user, or existing data from the old (per-user) format → seed a fresh group.
+      householdId = makeCode();
+      const seedFrom = (udata && Array.isArray(udata.recipes)) ? udata : window.__getState();
+      householdCache = {
+        recipes: seedFrom.recipes || [],
+        week: seedFrom.week || {},
+        groceryChecked: seedFrom.groceryChecked || {},
+        memberEmails: [currentUser.email],
+        ownerUid: currentUser.uid,
+        updatedAt: Date.now()
+      };
+      await setDoc(doc(db, "households", householdId), householdCache);
+      await setDoc(userRef, { householdId, email: currentUser.email });
+    }
+    householdRef = doc(db, "households", householdId);
+    shareCode.textContent = householdId;
+    subscribeHousehold();
+  }
 
   signInBtn.addEventListener("click", async () => {
     setStatus("Opening Google sign-in…");
@@ -832,30 +983,63 @@
 
   signOutBtn.addEventListener("click", () => signOut(auth));
 
+  // Add partner's email so they're allowed into this group.
+  $("addMemberBtn").addEventListener("click", async () => {
+    const email = $("memberEmailInput").value.trim().toLowerCase();
+    if(!email || !householdRef){ return; }
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ setSmall("memberStatus", "That doesn't look like an email address.", true); return; }
+    try {
+      await setDoc(householdRef, { memberEmails: arrayUnion(email) }, { merge: true });
+      if(householdCache){ householdCache.memberEmails = [...new Set([...(householdCache.memberEmails||[]), email])]; }
+      $("memberEmailInput").value = "";
+      setSmall("memberStatus", "Added! Give them your code above and have them tap “Join their group.”");
+    } catch(e){ setSmall("memberStatus", "Couldn't add: " + e.message, true); }
+  });
+
+  // Join a partner's existing group by code.
+  $("joinBtn").addEventListener("click", async () => {
+    const code = $("joinCodeInput").value.trim().toUpperCase();
+    if(!code || !currentUser){ return; }
+    if(code === householdId){ setSmall("joinStatus", "That's already your current group.", true); return; }
+    try {
+      const ref = doc(db, "households", code);
+      const snap = await getDoc(ref); // denied by rules if your email isn't a member yet
+      if(!snap.exists()){ setSmall("joinStatus", "No group found with that code.", true); return; }
+      await setDoc(doc(db, "users", currentUser.uid), { householdId: code, email: currentUser.email }, { merge: true });
+      householdId = code;
+      householdRef = ref;
+      householdCache = snap.data();
+      shareCode.textContent = householdId;
+      subscribeHousehold();
+      $("joinCodeInput").value = "";
+      setSmall("joinStatus", "Joined! Your lists now sync with that group.");
+    } catch(e){
+      setSmall("joinStatus", "Couldn't join — ask them to add your email (" + currentUser.email + ") to their group first.", true);
+    }
+  });
+
+  $("copyCodeBtn").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(householdId || ""); setSmall("memberStatus", "Code copied!"); }
+    catch(e){ /* clipboard may be blocked; the code is shown on screen anyway */ }
+  });
+
   getRedirectResult(auth).catch(()=>{});
 
-  onAuthStateChanged(auth, (user) => {
+  onAuthStateChanged(auth, async (user) => {
     if (unsub) { unsub(); unsub = null; }
+    currentUser = user;
     if (user) {
-      userDocRef = doc(db, "users", user.uid);
       signInBtn.style.display = "none";
       signOutBtn.style.display = "";
-      setStatus("Synced as <b>" + (user.email || user.displayName || "you") + "</b> ✓", "on");
-      unsub = onSnapshot(userDocRef, { includeMetadataChanges: true },
-        (snap) => {
-          if (snap.exists()) {
-            window.__applyRemoteState(snap.data());
-          } else if (!snap.metadata.fromCache) {
-            // Server confirms there's no cloud data yet → seed it from this device.
-            setDoc(userDocRef, { ...window.__getState(), updatedAt: Date.now() }).catch(console.error);
-          }
-        },
-        (err) => setStatus("Sync error: " + err.message, "error")
-      );
+      householdBox.style.display = "";
+      setStatus("Synced as <b>" + esc(user.email || user.displayName || "you") + "</b> ✓", "on");
+      try { await startHousehold(); }
+      catch(e){ setStatus("Sync setup failed: " + e.message, "error"); }
     } else {
-      userDocRef = null;
+      householdId = null; householdRef = null; householdCache = null;
       signInBtn.style.display = "";
       signOutBtn.style.display = "none";
+      householdBox.style.display = "none";
       setStatus("Not signed in — sign in to sync across your devices.");
     }
   });
