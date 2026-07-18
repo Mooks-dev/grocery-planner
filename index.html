@@ -62,13 +62,14 @@
   .tab{
     flex:1;
     text-align:center;
-    padding:10px 6px;
+    padding:10px 4px;
     border-radius:10px;
     cursor:pointer;
     font-weight:600;
     color:var(--muted);
     user-select:none;
-    font-size:0.92rem;
+    font-size:0.8rem;
+    white-space:nowrap;
   }
   .tab.active{
     background:var(--accent);
@@ -271,6 +272,21 @@
     margin:16px 0 4px;
   }
 
+  .backup-note{
+    color:var(--muted);
+    font-size:0.9rem;
+    line-height:1.5;
+    margin:0 0 18px;
+  }
+  .backup-status{
+    text-align:center;
+    font-size:0.88rem;
+    color:var(--green);
+    margin-top:14px;
+    min-height:1.2em;
+  }
+  .backup-status.error{color:#d1554a;}
+
   .grocery-item{
     display:flex;
     align-items:center;
@@ -313,6 +329,7 @@
     <div class="tab active" data-tab="week">📅 Week</div>
     <div class="tab" data-tab="recipes">📖 Recipes</div>
     <div class="tab" data-tab="grocery">🛒 List</div>
+    <div class="tab" data-tab="backup">💾 Backup</div>
   </div>
 
   <!-- WEEK VIEW -->
@@ -339,7 +356,22 @@
     <button class="btn secondary block" id="uncheckAllBtn">Uncheck all</button>
   </div>
 
-  <footer>Everything's saved right on this device.</footer>
+  <!-- BACKUP VIEW -->
+  <div class="view" id="view-backup">
+    <div class="section-title">
+      <span>Backup &amp; Restore</span>
+    </div>
+    <p class="backup-note">
+      Your recipes and week plan live in this browser only. If Safari's history or website data ever gets cleared, that data goes with it.
+      Save a backup file to your Files app or iCloud Drive every so often — you can restore from it any time, even on a different device.
+    </p>
+    <button class="btn block" id="exportBtn">⬇️ Save a backup file</button>
+    <button class="btn secondary block" id="importBtn">⬆️ Restore from a backup file</button>
+    <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
+    <div id="backupStatus" class="backup-status"></div>
+  </div>
+
+  <footer>Everything's saved right on this device — back it up in the 💾 Backup tab.</footer>
 </main>
 
 <!-- Day picker modal -->
@@ -622,6 +654,57 @@
   document.getElementById("uncheckAllBtn").addEventListener("click", ()=>{
     state.groceryChecked = {};
     save(); renderGrocery();
+  });
+
+  // ---------- Backup / restore ----------
+  function backupStatus(msg, isError){
+    const el = document.getElementById("backupStatus");
+    el.textContent = msg;
+    el.classList.toggle("error", !!isError);
+  }
+
+  document.getElementById("exportBtn").addEventListener("click", ()=>{
+    const dateStr = new Date().toISOString().slice(0,10);
+    const blob = new Blob([JSON.stringify(state, null, 2)], {type: "application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `dinner-planner-backup-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    backupStatus("Backup saved! Choose Files/iCloud Drive to keep it safe.");
+  });
+
+  document.getElementById("importBtn").addEventListener("click", ()=>{
+    document.getElementById("importFile").click();
+  });
+
+  document.getElementById("importFile").addEventListener("change", (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try{
+        const data = JSON.parse(reader.result);
+        if(typeof data !== "object" || !data.recipes || !data.week){
+          throw new Error("Not a valid backup file");
+        }
+        state = {
+          recipes: Array.isArray(data.recipes) ? data.recipes : [],
+          week: typeof data.week === "object" ? data.week : {},
+          groceryChecked: typeof data.groceryChecked === "object" ? data.groceryChecked : {}
+        };
+        save();
+        renderDays(); renderRecipes(); renderGrocery();
+        backupStatus(`Restored! Loaded ${state.recipes.length} recipe(s).`);
+      }catch(err){
+        backupStatus("That doesn't look like a valid backup file.", true);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
   });
 
   // ---------- Modal helpers ----------
