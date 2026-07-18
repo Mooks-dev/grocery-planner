@@ -59,16 +59,17 @@
     padding:6px;
     box-shadow:var(--shadow);
   }
+  .tabs{gap:3px;}
   .tab{
     flex:1;
     text-align:center;
-    padding:10px 4px;
+    padding:10px 2px;
     border-radius:10px;
     cursor:pointer;
     font-weight:600;
     color:var(--muted);
     user-select:none;
-    font-size:0.8rem;
+    font-size:0.72rem;
     white-space:nowrap;
   }
   .tab.active{
@@ -336,7 +337,7 @@
     font-size:0.85rem;
     margin:0 6px 6px 0;
   }
-  .modal input[type=text], .modal textarea, #view-backup input[type=text]{
+  .modal input[type=text], .modal textarea, #view-backup input[type=text], .modal select{
     width:100%;
     border:1px solid var(--border);
     border-radius:10px;
@@ -346,6 +347,50 @@
     background:#fffdfb;
     margin-bottom:8px;
   }
+
+  /* Pantry */
+  .pantry-card{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    background:var(--card);border-radius:14px;box-shadow:var(--shadow);
+    padding:14px 16px;margin-bottom:9px;cursor:pointer;
+  }
+  .pantry-card .ing-name{font-weight:600;}
+  .pantry-card .pill{
+    background:var(--border);border-radius:16px;padding:5px 12px;
+    font-size:0.8rem;color:#6a6058;font-weight:600;white-space:nowrap;
+  }
+  .danger-btn{background:#fbe3e0;color:#c0392b;}
+
+  /* Ingredient rows in the recipe editor */
+  #ingredientRows .ing-row{display:flex;align-items:center;gap:6px;margin-bottom:8px;}
+  #ingredientRows input[type=text], #ingredientRows select{
+    border:1px solid var(--border);border-radius:9px;padding:9px 8px;
+    font-size:0.95rem;font-family:inherit;background:#fffdfb;margin-bottom:0;
+  }
+  #ingredientRows .ing-r-name{flex:1;min-width:0;width:auto;}
+  #ingredientRows .ing-r-qty{width:54px;text-align:center;}
+  #ingredientRows .ing-r-unit{width:82px;color:var(--accent-dark);font-weight:600;background:#fff5ef;}
+  #ingredientRows .ing-r-x{
+    background:none;border:none;color:#cc9a86;font-size:1.15rem;
+    cursor:pointer;padding:2px 4px;flex-shrink:0;line-height:1;
+  }
+
+  /* Recipe link buttons + ingredient detail */
+  .link-btn{
+    display:block;text-align:center;text-decoration:none;color:#fff;font-weight:700;
+    border-radius:12px;padding:12px;margin:2px 0 14px;font-size:0.98rem;
+  }
+  .link-tiktok{background:#ff0050;}
+  .link-youtube{background:#ff0000;}
+  .link-web{background:#3478f6;}
+  .ing-detail-list{margin:0 0 8px;}
+  .detail-ing{
+    display:flex;align-items:baseline;gap:10px;padding:6px 0;
+    border-bottom:1px solid var(--border);
+  }
+  .detail-ing .amt{font-weight:700;color:var(--accent-dark);min-width:58px;font-size:0.9rem;}
+  .detail-ing .nm{font-size:0.95rem;}
+  .g-amt{font-weight:700;color:var(--accent-dark);}
 
   .grocery-item{
     display:flex;
@@ -388,8 +433,9 @@
   <div class="tabs">
     <div class="tab active" data-tab="week">📅 Week</div>
     <div class="tab" data-tab="recipes">📖 Recipes</div>
+    <div class="tab" data-tab="pantry">🥕 Pantry</div>
     <div class="tab" data-tab="grocery">🛒 List</div>
-    <div class="tab" data-tab="backup">💾 Backup</div>
+    <div class="tab" data-tab="backup">💾 Save</div>
   </div>
 
   <!-- WEEK VIEW -->
@@ -405,6 +451,16 @@
     </div>
     <div id="recipeList"></div>
     <button class="btn block" id="newRecipeBtn">+ Add a recipe</button>
+  </div>
+
+  <!-- PANTRY VIEW -->
+  <div class="view" id="view-pantry">
+    <div class="section-title">
+      <span>Your Ingredients</span>
+    </div>
+    <p class="backup-note">Ingredients you use often. Add them once, then pull from them in any recipe — tap one to edit its default unit.</p>
+    <div id="pantryList"></div>
+    <button class="btn block" id="addPantryBtn">+ Add ingredient</button>
   </div>
 
   <!-- GROCERY VIEW -->
@@ -499,8 +555,13 @@
     <label>Recipe name</label>
     <input type="text" id="recipeNameInput" placeholder="e.g. Grandma's Chili">
 
-    <label>Ingredients (one per line)</label>
-    <textarea id="recipeIngredientsInput" placeholder="1 lb ground beef&#10;1 can black beans&#10;2 cups tomato sauce"></textarea>
+    <label>🔗 Recipe video or website link (optional)</label>
+    <input type="text" id="recipeLinkInput" placeholder="Paste a TikTok, YouTube or website link" autocapitalize="off" autocorrect="off">
+
+    <label>Ingredients</label>
+    <div id="ingredientRows"></div>
+    <datalist id="pantryOptions"></datalist>
+    <button type="button" class="btn secondary block" id="addIngredientRowBtn">+ Add ingredient</button>
 
     <label>Instructions (optional)</label>
     <textarea id="recipeInstructionsInput" placeholder="Brown the beef, add everything else, simmer 30 min..."></textarea>
@@ -512,10 +573,31 @@
   </div>
 </div>
 
+<!-- Pantry ingredient modal -->
+<div class="overlay" id="pantryModal">
+  <div class="modal">
+    <button class="close-x" data-close="pantryModal">✕</button>
+    <h2 id="pantryModalTitle">Add Ingredient</h2>
+
+    <label>Ingredient name</label>
+    <input type="text" id="pantryNameInput" placeholder="e.g. Onion">
+
+    <label>Default unit</label>
+    <select id="pantryUnitInput"></select>
+
+    <div class="modal-actions">
+      <button class="btn secondary" data-close="pantryModal">Cancel</button>
+      <button class="btn" id="savePantryBtn">Save</button>
+    </div>
+    <button class="btn danger-btn block" id="deletePantryBtn" style="display:none;">Delete ingredient</button>
+  </div>
+</div>
+
 <script>
 (function(){
   "use strict";
   const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+  const UNITS = ["","g","kg","mg","ml","L","pcs","pack","tin","tbsp","tsp","cup","clove","pinch"];
   const STORE_KEY = "dinnerPlanner.v1";
 
   let state = load();
@@ -523,14 +605,54 @@
   function load(){
     try{
       const raw = localStorage.getItem(STORE_KEY);
-      if(raw) return JSON.parse(raw);
+      if(raw) return normalizeState(JSON.parse(raw));
     }catch(e){}
-    return {
-      recipes: [],       // {id, name, ingredients:[str], instructions}
-      week: {},          // day -> {type:'recipe', recipeId} | {type:'custom', text}
-      groceryChecked: {} // itemKey -> bool
-    };
+    return normalizeState(null);
   }
+
+  // Bring any saved data up to the current shape:
+  //  - recipe.ingredients: "text"  ->  {name, qty, unit}
+  //  - recipe.link added
+  //  - pantry seeded from ingredient names
+  function normalizeState(s){
+    if(!s || typeof s !== "object") s = {};
+    const out = {
+      recipes: Array.isArray(s.recipes) ? s.recipes : [],
+      week: (s.week && typeof s.week === "object") ? s.week : {},
+      groceryChecked: (s.groceryChecked && typeof s.groceryChecked === "object") ? s.groceryChecked : {},
+      pantry: Array.isArray(s.pantry) ? s.pantry : []
+    };
+    out.recipes.forEach(r=>{
+      if(typeof r.link !== "string") r.link = "";
+      r.ingredients = (Array.isArray(r.ingredients) ? r.ingredients : []).map(ing=>{
+        if(typeof ing === "string") return { name: ing, qty: "", unit: "" };
+        return { name: ing.name || "", qty: (ing.qty!=null ? String(ing.qty) : ""), unit: ing.unit || "" };
+      }).filter(ing=>ing.name);
+    });
+    const have = new Set(out.pantry.map(p=>(p.name||"").toLowerCase()));
+    out.recipes.forEach(r=>{
+      r.ingredients.forEach(ing=>{
+        const k = ing.name.toLowerCase();
+        if(k && !have.has(k)){
+          have.add(k);
+          out.pantry.push({ id: uid(), name: ing.name, defaultUnit: ing.unit || "" });
+        }
+      });
+    });
+    out.pantry.sort((a,b)=>a.name.localeCompare(b.name));
+    return out;
+  }
+
+  function unitOptionsHtml(sel){
+    return UNITS.map(u=>`<option value="${u}" ${u===sel?"selected":""}>${u===""?"(no unit)":u}</option>`).join("");
+  }
+  function fmtAmount(ing){
+    const q = (ing.qty!=null ? String(ing.qty) : "").trim();
+    const u = ing.unit || "";
+    if(!q && !u) return "";
+    return (q + " " + u).trim();
+  }
+  function roundNum(n){ return Math.round(n*100)/100; }
   function save(){
     localStorage.setItem(STORE_KEY, JSON.stringify(state));
     if(window.__cloudOnSave) window.__cloudOnSave();
@@ -547,6 +669,7 @@
       tab.classList.add("active");
       document.getElementById("view-"+tab.dataset.tab).classList.add("active");
       if(tab.dataset.tab === "grocery") renderGrocery();
+      if(tab.dataset.tab === "pantry") renderPantry();
     });
   });
 
@@ -649,7 +772,13 @@
           <span>▾</span>
         </div>
         <div class="recipe-details">
-          <ul>${r.ingredients.map(i=>`<li>${escapeHtml(i)}</li>`).join("")}</ul>
+          ${linkButtonHtml(r.link)}
+          <div class="ing-detail-list">
+            ${r.ingredients.map(i=>{
+              const amt = fmtAmount(i);
+              return `<div class="detail-ing">${amt?`<span class="amt">${escapeHtml(amt)}</span>`:`<span class="amt"></span>`}<span class="nm">${escapeHtml(i.name)}</span></div>`;
+            }).join("")}
+          </div>
           ${r.instructions ? `<div class="instructions">${escapeHtml(r.instructions)}</div>` : ""}
           <div class="recipe-detail-actions">
             <button class="btn secondary" data-edit="${r.id}">Edit</button>
@@ -681,30 +810,147 @@
 
   document.getElementById("newRecipeBtn").addEventListener("click", ()=>openRecipeModal(null));
 
+  function linkButtonHtml(link){
+    if(!link) return "";
+    const l = link.toLowerCase();
+    let label = "🔗 View recipe", cls = "link-web";
+    if(l.includes("tiktok")){ label = "▶ Watch on TikTok"; cls = "link-tiktok"; }
+    else if(l.includes("youtube") || l.includes("youtu.be")){ label = "▶ Watch on YouTube"; cls = "link-youtube"; }
+    const href = /^https?:\/\//i.test(link) ? link : "https://" + link;
+    return `<a class="link-btn ${cls}" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  }
+
+  function fillPantryDatalist(){
+    document.getElementById("pantryOptions").innerHTML =
+      state.pantry.map(p=>`<option value="${escapeHtml(p.name)}"></option>`).join("");
+  }
+
+  function makeIngredientRow(ing){
+    ing = ing || {name:"",qty:"",unit:""};
+    const row = document.createElement("div");
+    row.className = "ing-row";
+    row.innerHTML = `
+      <input type="text" class="ing-r-name" list="pantryOptions" placeholder="Ingredient" value="${escapeHtml(ing.name)}">
+      <input type="text" class="ing-r-qty" inputmode="decimal" placeholder="Qty" value="${escapeHtml(ing.qty)}">
+      <select class="ing-r-unit">${unitOptionsHtml(ing.unit||"")}</select>
+      <button type="button" class="ing-r-x" aria-label="Remove ingredient">✕</button>
+    `;
+    const nameEl = row.querySelector(".ing-r-name");
+    const unitEl = row.querySelector(".ing-r-unit");
+    nameEl.addEventListener("change", ()=>{
+      const match = state.pantry.find(p=>p.name.toLowerCase()===nameEl.value.trim().toLowerCase());
+      if(match && match.defaultUnit && !unitEl.value) unitEl.value = match.defaultUnit;
+    });
+    row.querySelector(".ing-r-x").addEventListener("click", ()=>row.remove());
+    return row;
+  }
+
   function openRecipeModal(id){
     editingRecipeId = id;
     const recipe = id ? state.recipes.find(r=>r.id===id) : null;
     document.getElementById("recipeModalTitle").textContent = recipe ? "Edit Recipe" : "New Recipe";
     document.getElementById("recipeNameInput").value = recipe ? recipe.name : "";
-    document.getElementById("recipeIngredientsInput").value = recipe ? recipe.ingredients.join("\n") : "";
+    document.getElementById("recipeLinkInput").value = recipe ? (recipe.link||"") : "";
     document.getElementById("recipeInstructionsInput").value = recipe ? (recipe.instructions||"") : "";
+    fillPantryDatalist();
+    const rows = document.getElementById("ingredientRows");
+    rows.innerHTML = "";
+    const ings = (recipe && recipe.ingredients.length) ? recipe.ingredients : [null, null];
+    ings.forEach(ing=>rows.appendChild(makeIngredientRow(ing)));
     openModal("recipeModal");
   }
 
+  document.getElementById("addIngredientRowBtn").addEventListener("click", ()=>{
+    document.getElementById("ingredientRows").appendChild(makeIngredientRow(null));
+  });
+
   document.getElementById("saveRecipeBtn").addEventListener("click", ()=>{
     const name = document.getElementById("recipeNameInput").value.trim();
-    const ingredientsRaw = document.getElementById("recipeIngredientsInput").value;
+    const link = document.getElementById("recipeLinkInput").value.trim();
     const instructions = document.getElementById("recipeInstructionsInput").value.trim();
     if(!name){ alert("Give your recipe a name!"); return; }
-    const ingredients = ingredientsRaw.split("\n").map(s=>s.trim()).filter(Boolean);
+
+    const ingredients = [];
+    document.querySelectorAll("#ingredientRows .ing-row").forEach(row=>{
+      const nm = row.querySelector(".ing-r-name").value.trim();
+      if(!nm) return;
+      ingredients.push({
+        name: nm,
+        qty: row.querySelector(".ing-r-qty").value.trim(),
+        unit: row.querySelector(".ing-r-unit").value
+      });
+    });
+    // Any new ingredient names get added to the pantry for reuse.
+    ingredients.forEach(ing=>{
+      if(!state.pantry.some(p=>p.name.toLowerCase()===ing.name.toLowerCase())){
+        state.pantry.push({id:uid(), name:ing.name, defaultUnit:ing.unit||""});
+      }
+    });
+    state.pantry.sort((a,b)=>a.name.localeCompare(b.name));
 
     if(editingRecipeId){
       const r = state.recipes.find(x=>x.id===editingRecipeId);
-      r.name = name; r.ingredients = ingredients; r.instructions = instructions;
+      r.name = name; r.link = link; r.ingredients = ingredients; r.instructions = instructions;
     }else{
-      state.recipes.push({id:uid(), name, ingredients, instructions});
+      state.recipes.push({id:uid(), name, link, ingredients, instructions});
     }
-    save(); renderRecipes(); renderDays(); closeModal("recipeModal");
+    save(); renderRecipes(); renderPantry(); renderDays(); closeModal("recipeModal");
+  });
+
+  // ---------- Pantry view ----------
+  let editingPantryId = null;
+
+  function renderPantry(){
+    const wrap = document.getElementById("pantryList");
+    wrap.innerHTML = "";
+    if(state.pantry.length === 0){
+      wrap.innerHTML = `<div class="empty-state">No ingredients yet. Add the ones you use often, or they'll appear here automatically as you build recipes! 🥕</div>`;
+      return;
+    }
+    state.pantry.forEach(p=>{
+      const card = document.createElement("div");
+      card.className = "pantry-card";
+      card.innerHTML = `
+        <span class="ing-name">${escapeHtml(p.name)}</span>
+        <span class="pill">${p.defaultUnit ? escapeHtml(p.defaultUnit) : "no unit"}</span>
+      `;
+      card.addEventListener("click", ()=>openPantryModal(p.id));
+      wrap.appendChild(card);
+    });
+  }
+
+  document.getElementById("addPantryBtn").addEventListener("click", ()=>openPantryModal(null));
+
+  function openPantryModal(id){
+    editingPantryId = id;
+    const p = id ? state.pantry.find(x=>x.id===id) : null;
+    document.getElementById("pantryModalTitle").textContent = p ? "Edit Ingredient" : "Add Ingredient";
+    document.getElementById("pantryNameInput").value = p ? p.name : "";
+    document.getElementById("pantryUnitInput").innerHTML = unitOptionsHtml(p ? p.defaultUnit : "");
+    document.getElementById("deletePantryBtn").style.display = p ? "" : "none";
+    openModal("pantryModal");
+  }
+
+  document.getElementById("savePantryBtn").addEventListener("click", ()=>{
+    const name = document.getElementById("pantryNameInput").value.trim();
+    const unit = document.getElementById("pantryUnitInput").value;
+    if(!name){ alert("Give the ingredient a name!"); return; }
+    if(editingPantryId){
+      const p = state.pantry.find(x=>x.id===editingPantryId);
+      p.name = name; p.defaultUnit = unit;
+    }else if(!state.pantry.some(x=>x.name.toLowerCase()===name.toLowerCase())){
+      state.pantry.push({id:uid(), name, defaultUnit:unit});
+    }
+    state.pantry.sort((a,b)=>a.name.localeCompare(b.name));
+    save(); renderPantry(); closeModal("pantryModal");
+  });
+
+  document.getElementById("deletePantryBtn").addEventListener("click", ()=>{
+    const p = state.pantry.find(x=>x.id===editingPantryId);
+    if(p && confirm(`Remove "${p.name}" from your ingredients? (Recipes already using it keep their copy.)`)){
+      state.pantry = state.pantry.filter(x=>x.id!==editingPantryId);
+      save(); renderPantry(); closeModal("pantryModal");
+    }
   });
 
   // ---------- Grocery view ----------
@@ -712,15 +958,19 @@
     const wrap = document.getElementById("groceryList");
     wrap.innerHTML = "";
 
-    const items = {}; // lowercase text -> {label, sources:Set}
+    // Group by ingredient + unit; add up quantities where they're numbers.
+    const items = {}; // key -> {name, unit, total, anyQty, sources:Set}
     DAYS.forEach(day=>{
       const entry = state.week[day];
       if(!entry || entry.type !== "recipe") return;
       const recipe = state.recipes.find(r=>r.id===entry.recipeId);
       if(!recipe) return;
       recipe.ingredients.forEach(ing=>{
-        const key = ing.toLowerCase();
-        if(!items[key]) items[key] = {label: ing, sources: new Set()};
+        const unit = ing.unit || "";
+        const key = ing.name.toLowerCase() + "|" + unit;
+        if(!items[key]) items[key] = {name: ing.name, unit, total: 0, anyQty: false, sources: new Set()};
+        const n = parseFloat(ing.qty);
+        if(!isNaN(n)){ items[key].total += n; items[key].anyQty = true; }
         items[key].sources.add(recipe.name);
       });
     });
@@ -731,15 +981,16 @@
       return;
     }
 
-    keys.sort((a,b)=>items[a].label.localeCompare(items[b].label));
+    keys.sort((a,b)=>items[a].name.localeCompare(items[b].name));
     keys.forEach(key=>{
       const item = items[key];
       const checked = !!state.groceryChecked[key];
+      const amt = item.anyQty ? (roundNum(item.total) + " " + item.unit).trim() : "";
       const row = document.createElement("label");
       row.className = "grocery-item" + (checked ? " checked" : "");
       row.innerHTML = `
         <input type="checkbox" ${checked?"checked":""}>
-        <span>${escapeHtml(item.label)}<br><span class="grocery-source">${[...item.sources].map(escapeHtml).join(", ")}</span></span>
+        <span>${amt?`<span class="g-amt">${escapeHtml(amt)}</span> · `:""}${escapeHtml(item.name)}<br><span class="grocery-source">${[...item.sources].map(escapeHtml).join(", ")}</span></span>
       `;
       row.querySelector("input").addEventListener("change", (e)=>{
         state.groceryChecked[key] = e.target.checked;
@@ -790,13 +1041,9 @@
         if(typeof data !== "object" || !data.recipes || !data.week){
           throw new Error("Not a valid backup file");
         }
-        state = {
-          recipes: Array.isArray(data.recipes) ? data.recipes : [],
-          week: typeof data.week === "object" ? data.week : {},
-          groceryChecked: typeof data.groceryChecked === "object" ? data.groceryChecked : {}
-        };
+        state = normalizeState(data);
         save();
-        renderDays(); renderRecipes(); renderGrocery();
+        renderDays(); renderRecipes(); renderPantry(); renderGrocery();
         backupStatus(`Restored! Loaded ${state.recipes.length} recipe(s).`);
       }catch(err){
         backupStatus("That doesn't look like a valid backup file.", true);
@@ -826,18 +1073,15 @@
   window.__getState = () => state;
   window.__applyRemoteState = function(remote){
     if(!remote || typeof remote !== "object") return;
-    state = {
-      recipes: Array.isArray(remote.recipes) ? remote.recipes : [],
-      week: (remote.week && typeof remote.week === "object") ? remote.week : {},
-      groceryChecked: (remote.groceryChecked && typeof remote.groceryChecked === "object") ? remote.groceryChecked : {}
-    };
+    state = normalizeState(remote);
     localStorage.setItem(STORE_KEY, JSON.stringify(state));
-    renderDays(); renderRecipes(); renderGrocery();
+    renderDays(); renderRecipes(); renderPantry(); renderGrocery();
   };
 
   // ---------- Init ----------
   renderDays();
   renderRecipes();
+  renderPantry();
   renderGrocery();
 
   if("serviceWorker" in navigator){
@@ -911,7 +1155,7 @@
       try {
         const s = window.__getState();
         await setDoc(householdRef, {
-          recipes: s.recipes, week: s.week, groceryChecked: s.groceryChecked,
+          recipes: s.recipes, week: s.week, groceryChecked: s.groceryChecked, pantry: s.pantry || [],
           memberEmails: (householdCache && householdCache.memberEmails) || [currentUser.email],
           ownerUid: (householdCache && householdCache.ownerUid) || currentUser.uid,
           updatedAt: Date.now()
@@ -955,6 +1199,7 @@
         recipes: seedFrom.recipes || [],
         week: seedFrom.week || {},
         groceryChecked: seedFrom.groceryChecked || {},
+        pantry: seedFrom.pantry || [],
         memberEmails: [currentUser.email],
         ownerUid: currentUser.uid,
         updatedAt: Date.now()
